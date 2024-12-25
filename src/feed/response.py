@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import List
 
 from pydantic import BaseModel, ConfigDict
 
@@ -28,16 +27,36 @@ class PostBriefResponse(BaseModel):
 
     @classmethod
     def build(cls, post: Post):
-        return cls(id=post.id,image=post.image_static_path)
+        return cls(id=post.id, image=post.image_static_path)
+
 
 class PostListResponse(BaseModel):
-    posts: List[PostBriefResponse]
+    posts: list[PostBriefResponse]
 
     @classmethod
-    def build(cls, posts: List[Post]):
+    def build(cls, posts: list[Post]):
         return cls(
             posts=[PostBriefResponse.build(post=p) for p in posts]
         )
+
+
+class PostUserResponse(BaseModel):
+    id: int
+    username: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PostDetailResponse(BaseModel):
+    id: int
+    image: str
+    content: str
+    created_at: datetime
+    user: PostUserResponse
+    comments: "list[PostCommentResponse]"
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 class PostCommentResponse(BaseModel):
     id: int
@@ -45,6 +64,15 @@ class PostCommentResponse(BaseModel):
     user_id: int
     content: str
     parent_id: int | None
+    replies: "list[PostCommentResponse]"
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class PostLikeResponse(BaseModel):
+    id: int
+    user_id: int
+    post_id: int
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

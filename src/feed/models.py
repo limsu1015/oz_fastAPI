@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Integer, Column, Text, String, DateTime, ForeignKey
+from sqlalchemy import Integer, Column, Text, String, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from config.database.orm import Base
@@ -56,6 +56,7 @@ class PostComment(Base):
     parent_id = Column(Integer, ForeignKey('posts_comments.id'), nullable=True)
     created_at = Column(DateTime, default=datetime.now, nullable=False)
 
+    post = relationship(Post, backref="comments")
     parent = relationship("PostComment", remote_side=[id], backref="replies")
 
     @property
@@ -73,3 +74,24 @@ class PostComment(Base):
             content=content,
             parent_id=parent_id
         )
+
+class PostLike(Base):
+    __tablename__ = 'posts_likes'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('service_user.id'), nullable=False)
+    post_id = Column(Integer, ForeignKey('feed_posts.id'), nullable=False)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
+
+    __table_args__ = (
+        # 사용자는 하나의 게시글에는 한번만 좋아요를 생성할 수 있음
+        UniqueConstraint("user_id", "post_id", name="uq_post_like_user_post"),
+    )
+
+    @classmethod
+    def create(cls, user_id: int, post_id: int):
+        return cls(user_id=user_id, post_id=post_id)
+
+# 사용자가 like 버튼 -> PostLike(user_id, post_id)기록
+# 중복 생성 방지
+# 사용자가 Like 버튼 취소 -> PostLike(user_id, post_id) 삭제

@@ -1,16 +1,22 @@
 from datetime import datetime
 
 from fastapi.exceptions import RequestValidationError
-from fastapi import FastAPI, status, requests
+from fastapi import FastAPI, status, requests, Depends
 from pydantic import BaseModel
 from starlette.responses import JSONResponse
 from starlette.staticfiles import StaticFiles
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from chat.models import ChatMessage
+from chat.repository import ChatRepository
+from config.websocket import WebSocketConnectionManager, ws_connection_manager
 from feed import router as feed_router
 from user.api import router as user_router
 import httpx
 import time
 import requests
+
+from user.service.authentication import authenticate
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="feed/posts"))
@@ -108,6 +114,29 @@ async def async_handler():
     }
 
 
+
+@app.websocket(
+    "/ws/rooms/{room_id}/{user_id}"
+)
+async def websocket_handler(
+        room_id: int,
+        user_id: int,
+        websocket: WebSocket, # 사용자의 웹소켓 연결
+        connection_manager: WebSocketConnectionManager = Depends(ws_connection_manager),
+):
+
+    await connection_manager.connect(
+        websocket=websocket, room_id=room_id, user_id=user_id
+    )
+
+    try:
+        while True:
+            content = await websocket.receive_text()
+            await connection_manager.broadcast(websocket=websocket, content=content)
+
+
+    except WebSocketDisconnect: # 웹소켓 연결이 끊기면
+        connection_manager.disconnect(websocket=websocket) # 클라이언트 연결 목록에서 제거
 
 
 

@@ -3,12 +3,12 @@ import shutil
 
 from fastapi import APIRouter, status, UploadFile, File, Form, HTTPException, Body
 from fastapi.params import Depends
-from pymysql import IntegrityError
+from sqlalchemy.exc import IntegrityError
 
-from feed.models import Post, PostComment
-from feed.repository import PostRepository, PostCommentRepository
+from feed.models import Post, PostComment, PostLike
+from feed.repository import PostRepository, PostCommentRepository, PostLikeRepository
 from feed.request import PostCommentCreateRequestBody
-from feed.response import PostResponse, PostListResponse, PostCommentResponse
+from feed.response import PostResponse, PostListResponse, PostCommentResponse, PostDetailResponse, PostLikeResponse
 from user.repository import UserRepository
 from user.service.authentication import authenticate
 from user.models import User
@@ -65,6 +65,28 @@ def get_posts_handler(
 
     # 2) 그대로 반환
     return PostListResponse.build(posts=posts)
+
+# 5) Post 상세 조회
+#  - image, user 정보 + content, comments
+@router.get(
+    "/posts/{post_id}",
+    status_code=status.HTTP_200_OK,
+    response_model=PostDetailResponse,
+)
+def get_post_handler(
+    post_id: int,
+    post_repo: PostRepository = Depends(),
+):
+    if not (post := post_repo.get_post_detail(post_id=post_id)):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Post does not exist",
+        )
+    return PostDetailResponse.model_validate(obj=post)
+
+
+
+
 
 # 3) Post 수정 U
 @router.patch(
@@ -140,8 +162,7 @@ def delete_post_handler(
 
 
 
-# 5) Post 상세 조회
-#  - image, user 정보 + content, comments
+
 # 6) Post 댓글 작성
 @router.post(
     "/posts/{post_id}/comments",
@@ -149,34 +170,34 @@ def delete_post_handler(
 )
 def create_comment_handler(
     post_id: int,
-    user_id: int = Depends(authenticate), #  로그인한 사용자만 댓글
+    user_id: int = Depends(authenticate),
     body: PostCommentCreateRequestBody = Body(...),
     post_repo: PostRepository = Depends(),
     comment_repo: PostCommentRepository = Depends(),
 ):
-    # 1) post 조회
-    if not (comment := post_repo.get_post(post_id=post_id)):
+    # post 조회
+    if not (post := post_repo.get_post(post_id=post_id)):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Post does not exist",
         )
 
-    # 2) parent_id 가 있으면 검증
     if body.parent_id:
         # 대댓글인 경우, 댓글의 post_id 검증
         parent_comment = comment_repo.get_comment(comment_id=body.parent_id)
         if not parent_comment:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="parent Comment does not exist",
+                detail="Parent comment does not exist",
             )
 
-        if parent_comment.post_id != post_id:
+        if parent_comment.post_id != post.id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Parent comment & Post not match",
             )
-        # parent_comment가 이미 대댓글이면 댓글추가x
+
+        # parent_comment가 댓글이 아니면 에러
         if not parent_comment.is_parent:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -192,8 +213,65 @@ def create_comment_handler(
     comment_repo.save(comment=new_comment)
     return PostCommentResponse.model_validate(obj=new_comment)
 
+# 8) Post 좋아요
+@router.post(
+    "/posts/{post_id}/like",
+    status_code=status.HTTP_201_CREATED,
+    response_model=PostLikeResponse,
+)
+def like_post_handler(
+    post_id: int,
+    user_id: int = Depends(authenticate),
+    like_repo: PostLikeRepository = Depends(),
+):
+    like = PostLike.create(user_id=user_id, post_id=post_id)
+    try:
+        like_repo.save(like)
+    except IntegrityError:
+        like_repo.rollback()
+        like = like_repo.get_like_by_user(user_id=user_id, post_id=post_id)
+
+    return PostLikeResponse.model_validate(obj=like)
+
+# 9) Post 좋아요 삭제
+
+@router.delete(
+    "/posts/{post_id}/like",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
+)
+def cancel_post_like_handler(
+    post_id: int,
+    user_id: int = Depends(authenticate),
+    like_repo: PostLikeRepository = Depends(),
+):
+    like_repo.delete_like_by_user(user_id=user_id, post_id=post_id)
+
 
 # 7) Post 댓글 삭제
-# 8) Post 좋아요
-# 9) Post 좋아요 삭제
+@router.delete(
+    "/comments/{comment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+
+)
+def delete_comment_handler(
+        comment_id: int,
+        user_id: int = Depends(authenticate),
+        comment_repo: PostCommentRepository = Depends(),
+):
+    if not (comment := comment_repo.get_comment(comment_id=comment_id)):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Comment does not exist",
+        )
+    if comment.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to perform this action",
+        )
+    comment_repo.delete(comment=comment)
+    return
+
+
+
 

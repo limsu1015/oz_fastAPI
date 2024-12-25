@@ -140,7 +140,7 @@ def kakao_social_callback_handler(
 
             )
 
-            return profile_response.json()
+        return profile_response.json()
     raise HTTPException(
         status_code=status.HTTP_400_BAD_REQUEST,
         detail="Kakao social callback failed",
